@@ -97,16 +97,18 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup -y
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /?
+          $iscc="C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if(!(Test-Path $iscc)){ throw "ISCC not found: $iscc" }
 
       - name: Build Installer (Inno Setup)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
+          $iscc="C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if(!(Test-Path "installer\ActionTest.iss")){ throw "Not found: installer\ActionTest.iss" }
+
           $ver="${{ inputs.tag_name }}".TrimStart("v")
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
-            /DMyAppVersion=$ver `
-            "installer\ActionTest.iss"
+          & $iscc /DMyAppVersion=$ver "installer\ActionTest.iss"
 
           if(!(Test-Path "installer\output\ActionTestSetup.exe")){ throw "Not found: installer\output\ActionTestSetup.exe" }
           Move-Item "installer\output\ActionTestSetup.exe" "ActionTest-${{ inputs.tag_name }}-setup.exe" -Force
@@ -159,8 +161,13 @@ jobs:
 
           ./squashfs-root/AppRun AppDir/usr/share/applications/ActionTest.desktop -appimage
 
-          OUT_APPIMAGE="$(ls -1 ActionTest-*.AppImage | head -n 1)"
-          echo "OUT_APPIMAGE=$OUT_APPIMAGE"
+          OUT_APPIMAGE="$(ls -1 ActionTest-*.AppImage 2>/dev/null | head -n 1)"
+          if [ -z "$OUT_APPIMAGE" ]; then
+            echo "No output AppImage found"
+            ls -la . || true
+            exit 1
+          fi
+
           mv "$OUT_APPIMAGE" "dist/ActionTest-${{ inputs.tag_name }}-linux-x86_64.AppImage"
 
       - name: Upload artifacts (Linux)
