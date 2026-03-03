@@ -139,9 +139,10 @@ jobs:
           ./linuxdeployqt.AppImage --appimage-extract
 
           ./squashfs-root/AppRun AppDir/usr/share/applications/ActionTest.desktop -appimage
-          ls -la ./*.AppImage
 
-          mv ./*.AppImage dist/ActionTest-${{ inputs.tag_name }}-linux-x86_64.AppImage
+          OUT_APPIMAGE="$(ls -1 ActionTest-*.AppImage | head -n 1)"
+          echo "OUT_APPIMAGE=$OUT_APPIMAGE"
+          mv "$OUT_APPIMAGE" "dist/ActionTest-${{ inputs.tag_name }}-linux-x86_64.AppImage"
 
       - name: Upload artifacts (Linux)
         if: matrix.os == 'ubuntu-22.04'
