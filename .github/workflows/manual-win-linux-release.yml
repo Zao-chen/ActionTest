@@ -20,19 +20,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-22.04]
+
     runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
 
-      # ===== deps =====
+      #Linux依赖
       - name: Install Linux deps
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-22.04'
+        shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libgl1-mesa-dev patchelf desktop-file-utils
+          sudo apt-get install -y ninja-build libgl1-mesa-dev patchelf desktop-file-utils wget
 
+      #Windows环境
       - name: Setup Ninja (Windows)
         if: matrix.os == 'windows-latest'
         uses: seanmiddleditch/gha-setup-ninja@v5
@@ -41,7 +44,7 @@ jobs:
         if: matrix.os == 'windows-latest'
         uses: ilammy/msvc-dev-cmd@v1
 
-      # ===== Qt =====
+      #安装Qt
       - name: Install Qt
         uses: jurplel/install-qt-action@v3
         with:
@@ -50,14 +53,16 @@ jobs:
           arch: ${{ matrix.os == 'windows-latest' && 'win64_msvc2019_64' || 'gcc_64' }}
           cache: true
 
-      # ===== build =====
+      #构建
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ inputs.build_type }}
 
       - name: Build
         run: cmake --build build
 
-      # ===== package (Windows) =====
+      #========================
+      # Windows打包：windeployqt
+      #========================
       - name: Package Windows (windeployqt)
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -69,25 +74,27 @@ jobs:
           windeployqt dist\ActionTest.exe
           Compress-Archive -Path dist\* -DestinationPath ActionTest-${{ inputs.tag_name }}-windows.zip
 
-      # ===== package (Linux) =====
+      #========================
+      # Linux打包：AppImage(linuxdeployqt)
+      #========================
       - name: Package Linux (AppImage via linuxdeployqt)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-22.04'
         shell: bash
         run: |
           set -euxo pipefail
+
           if [ ! -f "build/ActionTest" ]; then
             echo "Not found: build/ActionTest"
             ls -la build || true
             exit 1
           fi
 
-          #AppDir layout
           rm -rf AppDir linuxdeployqt.AppImage squashfs-root dist || true
           mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps dist
+
           cp build/ActionTest AppDir/usr/bin/ActionTest
           chmod +x AppDir/usr/bin/ActionTest
 
-          #desktop file
           cat > AppDir/usr/share/applications/ActionTest.desktop <<'EOF'
           [Desktop Entry]
           Type=Application
@@ -98,37 +105,41 @@ jobs:
           Terminal=false
           EOF
 
-          #tiny png icon (1x1) just to satisfy tool
+          #最小icon(避免工具报错)
           base64 -d > AppDir/usr/share/icons/hicolor/256x256/apps/ActionTest.png <<'EOF'
           iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+X2m0AAAAASUVORK5CYII=
           EOF
 
-          #download linuxdeployqt AppImage and extract (avoid FUSE)
           wget -qO linuxdeployqt.AppImage https://github.com/probonopd/linuxdeployqt/releases/download/continuous/linuxdeployqt-continuous-x86_64.AppImage
           chmod +x linuxdeployqt.AppImage
           ./linuxdeployqt.AppImage --appimage-extract
 
-          #build AppImage
           ./squashfs-root/AppRun AppDir/usr/share/applications/ActionTest.desktop -appimage
           ls -la ./*.AppImage
 
           mv ./*.AppImage dist/ActionTest-${{ inputs.tag_name }}-linux-x86_64.AppImage
 
-      # ===== upload artifacts =====
-      - name: Upload artifacts
+      #上传产物给release job汇总
+      - name: Upload artifacts (Windows)
+        if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: pkg-${{ matrix.os }}
-          path: |
-            ActionTest-${{ inputs.tag_name }}-windows.zip
-            dist/ActionTest-${{ inputs.tag_name }}-linux-x86_64.AppImage
+          name: pkg-windows
+          path: ActionTest-${{ inputs.tag_name }}-windows.zip
+
+      - name: Upload artifacts (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-linux
+          path: dist/ActionTest-${{ inputs.tag_name }}-linux-x86_64.AppImage
 
   release:
     needs: build
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download all artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: release_assets
