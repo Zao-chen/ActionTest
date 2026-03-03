@@ -15,6 +15,9 @@ on:
         required: false
         default: "Release"
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -27,9 +30,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      #========================
-      # Linux deps (Qt xcb + AppImage)
-      #========================
       - name: Install Linux deps
         if: matrix.os == 'ubuntu-22.04'
         shell: bash
@@ -43,9 +43,6 @@ jobs:
             libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 \
             libxcb-randr0 libxcb-xinerama0 libxcb-xfixes0 libxcb-shape0
 
-      #========================
-      # Windows toolchain
-      #========================
       - name: Setup Ninja (Windows)
         if: matrix.os == 'windows-latest'
         uses: seanmiddleditch/gha-setup-ninja@v5
@@ -54,9 +51,6 @@ jobs:
         if: matrix.os == 'windows-latest'
         uses: ilammy/msvc-dev-cmd@v1
 
-      #========================
-      # Install Qt
-      #========================
       - name: Install Qt
         uses: jurplel/install-qt-action@v3
         with:
@@ -65,18 +59,12 @@ jobs:
           arch: ${{ matrix.os == 'windows-latest' && 'win64_msvc2019_64' || 'gcc_64' }}
           cache: true
 
-      #========================
-      # Build
-      #========================
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ inputs.build_type }}
 
       - name: Build
         run: cmake --build build
 
-      #========================
-      # Package Windows (windeployqt)
-      #========================
       - name: Package Windows (windeployqt)
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -98,9 +86,6 @@ jobs:
           name: pkg-windows
           path: ActionTest-${{ inputs.tag_name }}-windows.zip
 
-      #========================
-      # Package Linux (AppImage via linuxdeployqt)
-      #========================
       - name: Package Linux (AppImage via linuxdeployqt)
         if: matrix.os == 'ubuntu-22.04'
         shell: bash
@@ -129,7 +114,6 @@ jobs:
           Terminal=false
           EOF
 
-          #最小icon(避免工具报错)
           base64 -d > AppDir/usr/share/icons/hicolor/256x256/apps/ActionTest.png <<'EOF'
           iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+X2m0AAAAASUVORK5CYII=
           EOF
@@ -154,6 +138,8 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    #只允许手动触发的workflow创建release
+    if: github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Download artifacts
