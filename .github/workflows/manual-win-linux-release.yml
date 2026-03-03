@@ -30,6 +30,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      #========================
+      # Linux deps (Qt xcb + AppImage)
+      #========================
       - name: Install Linux deps
         if: matrix.os == 'ubuntu-22.04'
         shell: bash
@@ -43,6 +46,9 @@ jobs:
             libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 \
             libxcb-randr0 libxcb-xinerama0 libxcb-xfixes0 libxcb-shape0
 
+      #========================
+      # Windows toolchain
+      #========================
       - name: Setup Ninja (Windows)
         if: matrix.os == 'windows-latest'
         uses: seanmiddleditch/gha-setup-ninja@v5
@@ -51,6 +57,9 @@ jobs:
         if: matrix.os == 'windows-latest'
         uses: ilammy/msvc-dev-cmd@v1
 
+      #========================
+      # Install Qt
+      #========================
       - name: Install Qt
         uses: jurplel/install-qt-action@v3
         with:
@@ -59,12 +68,18 @@ jobs:
           arch: ${{ matrix.os == 'windows-latest' && 'win64_msvc2019_64' || 'gcc_64' }}
           cache: true
 
+      #========================
+      # Build
+      #========================
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ inputs.build_type }}
 
       - name: Build
         run: cmake --build build
 
+      #========================
+      # Package Windows (windeployqt + Inno Setup)
+      #========================
       - name: Package Windows (windeployqt)
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -77,15 +92,35 @@ jobs:
           Copy-Item build\ActionTest.exe dist\
           windeployqt dist\ActionTest.exe
 
-          Compress-Archive -Path dist\* -DestinationPath ActionTest-${{ inputs.tag_name }}-windows.zip
+      - name: Install Inno Setup
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          choco install innosetup -y
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /?
+
+      - name: Build Installer (Inno Setup)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $ver="${{ inputs.tag_name }}".TrimStart("v")
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            /DMyAppVersion=$ver `
+            "installer\ActionTest.iss"
+
+          if(!(Test-Path "installer\output\ActionTestSetup.exe")){ throw "Not found: installer\output\ActionTestSetup.exe" }
+          Move-Item "installer\output\ActionTestSetup.exe" "ActionTest-${{ inputs.tag_name }}-setup.exe" -Force
 
       - name: Upload artifacts (Windows)
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
           name: pkg-windows
-          path: ActionTest-${{ inputs.tag_name }}-windows.zip
+          path: ActionTest-${{ inputs.tag_name }}-setup.exe
 
+      #========================
+      # Package Linux (AppImage via linuxdeployqt)
+      #========================
       - name: Package Linux (AppImage via linuxdeployqt)
         if: matrix.os == 'ubuntu-22.04'
         shell: bash
@@ -138,7 +173,6 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
-    #只允许手动触发的workflow创建release
     if: github.event_name == 'workflow_dispatch'
 
     steps:
