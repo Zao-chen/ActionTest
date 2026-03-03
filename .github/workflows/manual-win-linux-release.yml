@@ -27,15 +27,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      #Linux依赖
+      #========================
+      # Linux deps (Qt xcb + AppImage)
+      #========================
       - name: Install Linux deps
         if: matrix.os == 'ubuntu-22.04'
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libgl1-mesa-dev patchelf desktop-file-utils wget
+          sudo apt-get install -y \
+            ninja-build wget patchelf desktop-file-utils \
+            libgl1-mesa-dev \
+            libxkbcommon-x11-0 \
+            libxcb-cursor0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 \
+            libxcb-randr0 libxcb-xinerama0 libxcb-xfixes0 libxcb-shape0
 
-      #Windows环境
+      #========================
+      # Windows toolchain
+      #========================
       - name: Setup Ninja (Windows)
         if: matrix.os == 'windows-latest'
         uses: seanmiddleditch/gha-setup-ninja@v5
@@ -44,7 +54,9 @@ jobs:
         if: matrix.os == 'windows-latest'
         uses: ilammy/msvc-dev-cmd@v1
 
-      #安装Qt
+      #========================
+      # Install Qt
+      #========================
       - name: Install Qt
         uses: jurplel/install-qt-action@v3
         with:
@@ -53,7 +65,9 @@ jobs:
           arch: ${{ matrix.os == 'windows-latest' && 'win64_msvc2019_64' || 'gcc_64' }}
           cache: true
 
-      #构建
+      #========================
+      # Build
+      #========================
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ inputs.build_type }}
 
@@ -61,21 +75,31 @@ jobs:
         run: cmake --build build
 
       #========================
-      # Windows打包：windeployqt
+      # Package Windows (windeployqt)
       #========================
       - name: Package Windows (windeployqt)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
           if(!(Test-Path "build\ActionTest.exe")){ throw "Not found: build\ActionTest.exe" }
+
           Remove-Item -Recurse -Force dist -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force dist | Out-Null
+
           Copy-Item build\ActionTest.exe dist\
           windeployqt dist\ActionTest.exe
+
           Compress-Archive -Path dist\* -DestinationPath ActionTest-${{ inputs.tag_name }}-windows.zip
 
+      - name: Upload artifacts (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-windows
+          path: ActionTest-${{ inputs.tag_name }}-windows.zip
+
       #========================
-      # Linux打包：AppImage(linuxdeployqt)
+      # Package Linux (AppImage via linuxdeployqt)
       #========================
       - name: Package Linux (AppImage via linuxdeployqt)
         if: matrix.os == 'ubuntu-22.04'
@@ -118,14 +142,6 @@ jobs:
           ls -la ./*.AppImage
 
           mv ./*.AppImage dist/ActionTest-${{ inputs.tag_name }}-linux-x86_64.AppImage
-
-      #上传产物给release job汇总
-      - name: Upload artifacts (Windows)
-        if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: pkg-windows
-          path: ActionTest-${{ inputs.tag_name }}-windows.zip
 
       - name: Upload artifacts (Linux)
         if: matrix.os == 'ubuntu-22.04'
